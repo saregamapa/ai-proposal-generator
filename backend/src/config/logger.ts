@@ -1,0 +1,26 @@
+import winston from 'winston';
+import { config } from './index';
+
+const { combine, timestamp, errors, json, colorize, simple } = winston.format;
+
+export const logger = winston.createLogger({
+  level: config.env === 'production' ? 'info' : 'debug',
+  format: combine(
+    timestamp(),
+    errors({ stack: true }),
+    json()
+  ),
+  defaultMeta: { service: 'api' },
+  transports: [
+    new winston.transports.Console({
+      format: config.env === 'production'
+        ? combine(timestamp(), json())
+        : combine(colorize(), simple()),
+    }),
+  ],
+});
+
+if (config.env === 'production') {
+  logger.add(new winston.transports.File({ filename: 'logs/error.log', level: 'error' }));
+  logger.add(new winston.transports.File({ filename: 'logs/combined.log' }));
+}

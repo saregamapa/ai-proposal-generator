@@ -1,0 +1,329 @@
+// Prisma Schema — AI Proposal Generator
+// PostgreSQL 15
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+
+enum PlanType {
+  FREE
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+  INCOMPLETE
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  VIEWED
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum TemplateCategory {
+  MARKETING
+  SEO
+  WEB_DEVELOPMENT
+  CONSULTING
+  AI_AUTOMATION
+  CUSTOM
+}
+
+// ─── USERS ────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  avatarUrl         String?
+  passwordHash      String?
+  googleId          String?   @unique
+  emailVerified     Boolean   @default(false)
+  emailVerifyToken  String?
+  resetToken        String?
+  resetTokenExpiry  DateTime?
+  organizationId    String?
+  role              String    @default("owner") // owner | member | admin
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  organization      Organization?     @relation(fields: [organizationId], references: [id])
+  ownedOrg          Organization?     @relation("OrgOwner")
+  clients           Client[]
+  proposals         Proposal[]
+  templates         ProposalTemplate[]
+  apiKeys           ApiKey[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([googleId])
+  @@index([organizationId])
+}
+
+// ─── ORGANIZATIONS (for Agency plan) ─────────────────────────────────────────
+
+model Organization {
+  id              String    @id @default(cuid())
+  name            String
+  slug            String    @unique
+  logoUrl         String?
+  brandColor      String?   @default("#6366f1")
+  ownerId         String    @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  owner           User              @relation("OrgOwner", fields: [ownerId], references: [id])
+  members         User[]
+  subscription    Subscription?
+
+  @@index([slug])
+  @@index([ownerId])
+}
+
+// ─── SUBSCRIPTIONS ────────────────────────────────────────────────────────────
+
+model Subscription {
+  id                    String             @id @default(cuid())
+  organizationId        String             @unique
+  stripeCustomerId      String             @unique
+  stripeSubscriptionId  String?            @unique
+  stripePriceId         String?
+  plan                  PlanType           @default(FREE)
+  status                SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  cancelAtPeriodEnd     Boolean            @default(false)
+  trialEndsAt           DateTime?
+  proposalsUsedThisMonth Int               @default(0)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  // Relations
+  organization          Organization       @relation(fields: [organizationId], references: [id])
+  invoices              Invoice[]
+
+  @@index([stripeCustomerId])
+  @@index([organizationId])
+}
+
+// ─── INVOICES ─────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id               String   @id @default(cuid())
+  subscriptionId   String
+  stripeInvoiceId  String   @unique
+  amount           Int      // in cents
+  currency         String   @default("usd")
+  status           String
+  invoiceUrl       String?
+  paidAt           DateTime?
+  createdAt        DateTime @default(now())
+
+  subscription     Subscription @relation(fields: [subscriptionId], references: [id])
+}
+
+// ─── CLIENTS ──────────────────────────────────────────────────────────────────
+
+model Client {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  companyName  String
+  website      String?
+  industry     String?
+  email        String
+  phone        String?
+  address      String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  proposals    Proposal[]
+
+  @@index([userId])
+  @@index([email])
+}
+
+// ─── PROPOSALS ────────────────────────────────────────────────────────────────
+
+model Proposal {
+  id              String         @id @default(cuid())
+  userId          String
+  clientId        String?
+  templateId      String?
+  title           String
+  slug            String         @unique
+  status          ProposalStatus @default(DRAFT)
+  expiresAt       DateTime?
+
+  // Content sections (stored as JSON for flexibility)
+  coverPage       Json?
+  executiveSummary String?       @db.Text
+  clientProblem   String?       @db.Text
+  proposedSolution String?      @db.Text
+  scopeOfWork     String?       @db.Text
+  deliverables    String?       @db.Text
+  timeline        Json?         // structured timeline
+  pricingTable    Json?         // line items
+  testimonials    Json?
+  terms           String?       @db.Text
+  nextSteps       String?       @db.Text
+
+  // AI metadata
+  aiGenerated     Boolean        @default(false)
+  aiModel         String?
+  aiTokensUsed    Int?
+
+  // Totals (denormalized for fast access)
+  totalAmount     Decimal?       @db.Decimal(12, 2)
+  currency        String         @default("USD")
+
+  // Public sharing
+  publicToken     String         @unique @default(cuid())
+  isPublic        Boolean        @default(false)
+  passwordProtected Boolean      @default(false)
+  viewPassword    String?
+
+  // PDF
+  pdfUrl          String?
+  pdfGeneratedAt  DateTime?
+
+  // Approval
+  approvedAt      DateTime?
+  approvedBy      String?        // client name/email
+  approvalNote    String?
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relations
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client          Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  template        ProposalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  views           ProposalView[]
+  activities      ProposalActivity[]
+
+  @@index([userId])
+  @@index([clientId])
+  @@index([status])
+  @@index([publicToken])
+  @@index([slug])
+}
+
+// ─── PROPOSAL VIEWS (Analytics) ───────────────────────────────────────────────
+
+model ProposalView {
+  id           String   @id @default(cuid())
+  proposalId   String
+  viewerIp     String?
+  viewerAgent  String?
+  country      String?
+  city         String?
+  referrer     String?
+  duration     Int?     // seconds spent
+  sections     Json?    // which sections were viewed
+  createdAt    DateTime @default(now())
+
+  proposal     Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@index([createdAt])
+}
+
+// ─── PROPOSAL ACTIVITY ────────────────────────────────────────────────────────
+
+model ProposalActivity {
+  id          String   @id @default(cuid())
+  proposalId  String
+  type        String   // created | edited | sent | viewed | approved | rejected
+  metadata    Json?
+  actorName   String?
+  actorEmail  String?
+  createdAt   DateTime @default(now())
+
+  proposal    Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId])
+}
+
+// ─── PROPOSAL TEMPLATES ───────────────────────────────────────────────────────
+
+model ProposalTemplate {
+  id           String           @id @default(cuid())
+  userId       String?          // null = built-in system template
+  title        String
+  description  String?
+  category     TemplateCategory @default(CUSTOM)
+  thumbnail    String?
+  isPublic     Boolean          @default(false)
+  isSystem     Boolean          @default(false) // built-in templates
+  content      Json             // full template structure
+  usageCount   Int              @default(0)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  // Relations
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  proposals    Proposal[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([isSystem])
+}
+
+// ─── API KEYS ─────────────────────────────────────────────────────────────────
+
+model ApiKey {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String
+  keyHash    String   @unique
+  keyPrefix  String   // first 8 chars for display
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  user       User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([keyHash])
+}
+
+// ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user       User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}

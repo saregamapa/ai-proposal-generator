@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --primary: 245 58% 51%;
+    --primary-foreground: 0 0% 98%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { @apply bg-primary/30 rounded-full; }
+
+.ProseMirror { @apply outline-none min-h-[200px]; }
+.ProseMirror p.is-editor-empty:first-child::before { @apply text-muted-foreground float-left h-0 pointer-events-none; content: attr(data-placeholder); }
+.ProseMirror h1 { @apply text-3xl font-bold mb-4; }
+.ProseMirror h2 { @apply text-2xl font-semibold mb-3; }
+.ProseMirror p { @apply mb-3; }
+.ProseMirror ul { @apply list-disc ml-5 mb-3; }
+.ProseMirror strong { @apply font-bold; }
