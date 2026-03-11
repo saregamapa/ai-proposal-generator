@@ -21,7 +21,7 @@ services:
       - key: REDIS_URL
         fromService:
           name: proposal-redis
-          type: redis
+          type: keyvalue
           property: connectionString
       - key: JWT_ACCESS_SECRET
         generateValue: true
@@ -75,6 +75,12 @@ services:
         value: production
       - key: NEXT_PUBLIC_API_URL
         sync: false
+  - type: keyvalue
+    name: proposal-redis
+    region: oregon
+    plan: starter
+    ipAllowList: []  # internal only; API and other services in same region connect via connectionString
+
 databases:
   - name: proposal-db
     databaseName: proposal_db
